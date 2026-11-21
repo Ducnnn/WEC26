@@ -1,89 +1,51 @@
-import grid, connections, charge, battery
+import charge
+import connections
+import grid
 
 MAX_SOLAR_POWER = 200
+BATTERY_CAPACITY = 100
+HOURS_PER_DAY = 24
 
 
 def main():
     sckt = connections.connect_to_server()
     battery_power = 0
-    for i in range(24):
+
+    for hour in range(HOURS_PER_DAY):
         data = connections.get_json_from_server(sckt=sckt)
         random_event = data["random_event"]
-        forecast = data["forecast"]
-        loads = data["loads"]
-        grid_price = data["grid_price"]
-        solar_power_left = MAX_SOLAR_POWER
-        
+        last_hour = hour == HOURS_PER_DAY - 1
+        battery_works = random_event != "battery_failure"
+        grid_up = grid.is_grid_available(data)
 
-        answer = {
-            "buildings" : [],
-            "generator" : 100
-        }
+        # Charge left after the last hour is wasted, so spend it then
+        use_battery = battery_works and (
+            not grid_up or grid.is_grid_more_expensive(data) or last_hour
+        )
 
-        match random_event:
-            case "cloudy":
-                for building in loads:
-                    load = building["load"]
-                    build_answer = {"solar": 0, "battery": 0, "grid": 0}
-                    if grid_price > 1 and battery_power >= load:
-                        build_answer = {"solar": 0, "battery": load, "grid": 0}
-                        battery_power -= load
-                    else:
-                        build_answer = {"solar": 0, "battery": 0, "grid": load}
-                    answer["buildings"].append(build_answer)
-            case "battery_failure":
-                for building in loads:
-                    load = building["load"]
-                    build_answer = {"solar": 0, "battery": 0, "grid": 0}
-                    if building["type"] != "lecture_hall":
-                        if solar_power_left >= load:
-                            solar_power_left -= load
-                            build_answer = {"solar": load, "battery": 0, "grid": 0}
-                        else:
-                            build_answer = {"solar": 0, "battery": 0, "grid": load}
-                    else:
-                        build_answer = {"solar": 0, "battery": 0, "grid": load}
-                    answer["buildings"].append(build_answer)
-            case "grid_failure":
-                for building in loads:
-                    load = building["load"]
-                    build_answer = {"solar": 0, "battery": 0, "grid": 0}
-                    if building["type"] != "lecture_hall":
-                        if solar_power_left >= load:
-                            solar_power_left -= load
-                            build_answer = {"solar": load, "battery": 0, "grid": 0}
-                        else:
-                            build_answer = {"solar": 0, "battery": load, "grid": 0}
-                            battery_power -= load
-                    else:
-                        build_answer = {"solar": 0, "battery": load, "grid": 0}
-                        battery_power -= load
-                    answer["buildings"].append(build_answer)
-            case _:
-                for building in loads:
-                    load = building["load"]
-                    build_answer = {"solar": 0, "battery": 0, "grid": 0}
-                    if building["type"] != "lecture_hall":
-                        if solar_power_left >= load:
-                            solar_power_left -= load
-                            build_answer = {"solar": load, "battery": 0, "grid": 0}
-                        elif grid_price > 1 and battery_power >= load:
-                            build_answer = {"solar": 0, "battery": load, "grid": 0}
-                            battery_power -= load
-                        else:
-                            build_answer = {"solar": 0, "battery": 0, "grid": load}
-                    else:
-                        if grid_price > 1 and battery_power >= load:
-                            build_answer = {"solar": 0, "battery": load, "grid": 0}
-                            battery_power -= load
-                        else:
-                            build_answer = {"solar": 0, "battery": 0, "grid": load}
-                    answer["buildings"].append(build_answer)
+        solar_left = 0 if random_event == "cloudy_weather" else MAX_SOLAR_POWER
+        battery_left = battery_power if use_battery else 0
+        buildings = []
 
-        amount_to_charge = charge.charge(battery_power, 100)
-        battery_power += amount_to_charge
-        answer["charge"] = amount_to_charge
-        connections.send_json_to_server(sckt=sckt, dict_output=answer)
+        for building in data["loads"]:
+            load = building["load"]
+            solar = 0 if building["type"] == "lecture_hall" else min(load, solar_left)
+            from_battery = min(load - solar, battery_left)
+            from_grid = load - solar - from_battery if grid_up else 0
+
+            solar_left -= solar
+            battery_left -= from_battery
+            battery_power -= from_battery
+            buildings.append({"solar": solar, "battery": from_battery, "grid": from_grid})
+
+        target = battery_power if last_hour or not battery_works else BATTERY_CAPACITY
+        charged_level, _ = charge.charge(battery_power, target)
+        generator = charged_level - battery_power
+        battery_power = charged_level
+
+        connections.send_json_to_server(
+            sckt=sckt, dict_output={"buildings": buildings, "generator": generator}
+        )
 
 
 if __name__ == "__main__":
