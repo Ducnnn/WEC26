@@ -1,14 +1,13 @@
-
 # Takes the current percentage of the battery and how much someone wants to charge
-# Prints invalid charge amount if 
-def charge(current_charge, charge_amount): 
-    generator_price = 1; 
+# Prints invalid charge amount if exceeds 100'
+import main
 
-    max_charge = 100 - current_charge
+def charge(current_charge, target): 
 
-    if (charge_amount <= max_charge):
-        current_charge += charge_amount
-        cost += charge_amount * generator_price
-    else: 
-        print("Invalid Charge Amount")
-        
+    if not (current_charge <= target <= 100): 
+        print("Invalid charge amount")
+        return current_charge, 0
+
+    amount = target - current_charge
+
+    return target, amount * GENERATOR_PRICE
