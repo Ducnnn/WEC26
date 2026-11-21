@@ -1,6 +1,7 @@
 # Takes the current percentage of the battery and how much someone wants to charge
 # Prints invalid charge amount if exceeds 100'
-import main
+
+GENERATOR_PRICE = 1
 
 def charge(current_charge, target): 
 
@@ -9,5 +10,4 @@ def charge(current_charge, target):
         return current_charge, 0
 
     amount = target - current_charge
-
     return target, amount * GENERATOR_PRICE
