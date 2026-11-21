@@ -13,17 +13,18 @@ def main():
 
     for hour in range(HOURS_PER_DAY):
         data = connections.get_json_from_server(sckt=sckt)
-        random_event = data["random_event"]
+        random_events = data["random_event"]
         last_hour = hour == HOURS_PER_DAY - 1
-        battery_works = random_event != "battery_failure"
+        battery_works = "battery_failure" not in random_events
+        generator_works = "generator_failure" not in random_events
         grid_up = grid.is_grid_available(data)
 
         # Charge left after the last hour is wasted, so spend it then
         use_battery = battery_works and (
-            not grid_up or grid.is_grid_more_expensive(data) or last_hour
+            not grid_up or last_hour or (generator_works and grid.is_grid_more_expensive(data))
         )
 
-        solar_left = 0 if random_event == "cloudy_weather" else MAX_SOLAR_POWER
+        solar_left = 0 if "cloudy_weather" in random_events else MAX_SOLAR_POWER
         battery_left = battery_power if use_battery else 0
         buildings = []
 
@@ -38,7 +39,8 @@ def main():
             battery_power -= from_battery
             buildings.append({"solar": solar, "battery": from_battery, "grid": from_grid})
 
-        target = battery_power if last_hour or not battery_works else BATTERY_CAPACITY
+        can_charge = battery_works and generator_works and not last_hour
+        target = BATTERY_CAPACITY if can_charge else battery_power
         charged_level, _ = charge.charge(battery_power, target)
         generator = charged_level - battery_power
         battery_power = charged_level
